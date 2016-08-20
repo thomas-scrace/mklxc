@@ -1,11 +1,19 @@
 #!/bin/bash
 
-# Creates a privileged lxc container with the specified name.
+# Creates a privileged ubuntu lxc container with the specified name.
 # Starts the container.
 # Prints out IP address and other useful info.
 # Optionally shares one or more directories from the host to the container.
 
 set -e
+
+CONTAINER_NAME=$1
+CONFIG_PATH=/var/lib/lxc/$CONTAINER_NAME/config
+shift
+DIRS_TO_SHARE=$*
+CONTAINER_USER=ubuntu
+RESTART=0
+exit
 
 function contains () {
   local e
@@ -18,30 +26,55 @@ function contains () {
   echo 1
 }
 
+function share_directory () {
+  host_dir=$1
+  basename=`basename $1`
+  line="lxc.mount.entry = \"$host_dir\" home/$CONTAINER_USER/$basename none ro,bind 0.0"
+  if grep -Fxq "$line" $CONFIG_PATH; then
+    echo "Configuring shared directory \"$host_dir\""
+    echo $line >>$CONFIG_PATH
+    RESTART=1
+  fi
+  remote_dir_exists=(`ssh $CONTAINER_USER@$CONTAINER_IP '[ -d /home/$CONTAINER_USER/$basename ]'`)
+  if [ $remote_dir_exists == 0 ]; then
+    `create remote dir`
+    RESTART=1
+  fi
+}
+
 # We have to be root to create privileged containers.
 if [ "$(id -u)" != "0" ]; then
-   echo "This script must be run as root" 1>&2
+   echo "mklxc: This script must be run as root" 1>&2
    exit 1
 fi
 
-CONTAINER_NAME=$1
+
 
 EXISTING_CONTAINERS=(`echo $(lxc-ls)`)
 EXISTS=`contains $CONTAINER_NAME "${EXISTING_CONTAINERS[@]}"`
 
-if [ $EXISTS == 0 ]; then
-   echo "Container \"$CONTAINER_NAME\" already exists. Aborting." 1>&2
-   exit 1
+if [ $EXISTS == 1 ]; then
+   echo "mklxc: Container does not yet exist. Creating it..."
+   lxc-create -n $CONTAINER_NAME -t ubuntu
 fi
 
-lxc-create -n $CONTAINER_NAME -t ubuntu
-lxc-start -n $CONTAINER_NAME -d
-# Wait a few seconds for networking to wake up:
-sleep 6
+for d in $DIRS_TO_SHARE; do
+   share_directory $d
+done
+
+STATE=(`echo $(lxc-info -s -n $CONTAINER_NAME)`)
+RUNNING=`contains "RUNNING" "${STATE[@]}"`
+
+if [ $RUNNING == 1 ]; then
+   echo "mklxc: Container is not running. Starting it..."
+   lxc-start -n $CONTAINER_NAME -d
+   # Wait a few seconds for networking to wake up:
+   sleep 6
+fi
+
 
 cat <<EOF
-Success!
-$CONTAINER_NAME created
+mklxc: Container "$CONTAINER_NAME" is running with the following details.
 `lxc-info -n $CONTAINER_NAME`
 EOF
 #
