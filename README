@@ -1,7 +1,9 @@
+# What is it?
+
 Quick script to set up lxc containers.
 
 The purpose of this is to be able to quickly throw up
-containers for use as contained development boxes. Not
+containers for use as throwaway contained development boxes. Not
 intended for use in any production systems.
 
 Takes care of a few fiddly things like configuring shared
@@ -19,3 +21,15 @@ A known limitation is that you can't share multiple directories
 with the same basename. This is because I have no need to do this.
 
 Minimally tested.
+
+#Requirements
+
+It runs on Ubuntu. It's intended for creating ubuntu boxes.
+
+The following packages are required for lxc support:
+
+    lxc lxctl lxc-templates
+
+And for bootstrapping ssh access:
+
+    sshpass
