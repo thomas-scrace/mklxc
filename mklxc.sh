@@ -2,8 +2,11 @@
 
 # Creates a privileged ubuntu lxc container with the specified name.
 # Starts the container.
-# Prints out IP address and other useful info.
 # Optionally shares one or more directories from the host to the container.
+# Sets up ssh access using keys
+# Prints out the IP address
+# First arg is the container name to use. Subsequent args are paths to
+# directories on the host to share.
 
 set -e
 
@@ -12,8 +15,8 @@ CONFIG_PATH=/var/lib/lxc/$CONTAINER_NAME/config
 shift
 DIRS_TO_SHARE=$*
 CONTAINER_USER=ubuntu
+CONTAINER_PASS=ubuntu
 RESTART=0
-exit
 
 function contains () {
   local e
@@ -26,74 +29,69 @@ function contains () {
   echo 1
 }
 
-function share_directory () {
+function config_directory () {
   host_dir=$1
   basename=`basename $1`
-  line="lxc.mount.entry = \"$host_dir\" home/$CONTAINER_USER/$basename none ro,bind 0.0"
-  if grep -Fxq "$line" $CONFIG_PATH; then
+  line="lxc.mount.entry = $host_dir home/$CONTAINER_USER/$basename none ro,bind 0.0"
+  if ! sudo grep -Fxq "$line" $CONFIG_PATH; then
     echo "Configuring shared directory \"$host_dir\""
-    echo $line >>$CONFIG_PATH
-    RESTART=1
-  fi
-  remote_dir_exists=(`ssh $CONTAINER_USER@$CONTAINER_IP '[ -d /home/$CONTAINER_USER/$basename ]'`)
-  if [ $remote_dir_exists == 0 ]; then
-    `create remote dir`
+    sudo bash -c "echo $line >>$CONFIG_PATH"
     RESTART=1
   fi
 }
 
-# We have to be root to create privileged containers.
-if [ "$(id -u)" != "0" ]; then
-   echo "mklxc: This script must be run as root" 1>&2
-   exit 1
-fi
+function mk_remote_dir () {
+  basename=`basename $1`
+  if ! (`ssh -oStrictHostKeyChecking=no $CONTAINER_USER@$CONTAINER_IP "[ -d /home/$CONTAINER_USER/$basename ]"`); then
+    echo "Creating /home/$CONTAINER_USER/$basename in container"
+    ssh $CONTAINER_USER@$CONTAINER_IP "mkdir /home/$CONTAINER_USER/$basename"
+    RESTART=1
+  fi
+}
 
+function get_container_ip () {
+    echo `sudo lxc-info -iH -n $CONTAINER_NAME`
+}
 
+function setup_ssh_keys () {
+    sshpass -p $CONTAINER_PASS ssh-copy-id -oStrictHostKeyChecking=no $CONTAINER_USER@$CONTAINER_IP
+}
 
-EXISTING_CONTAINERS=(`echo $(lxc-ls)`)
+EXISTING_CONTAINERS=(`echo $(sudo lxc-ls)`)
 EXISTS=`contains $CONTAINER_NAME "${EXISTING_CONTAINERS[@]}"`
 
 if [ $EXISTS == 1 ]; then
    echo "mklxc: Container does not yet exist. Creating it..."
-   lxc-create -n $CONTAINER_NAME -t ubuntu
+   sudo lxc-create -n $CONTAINER_NAME -t ubuntu
 fi
 
-for d in $DIRS_TO_SHARE; do
-   share_directory $d
-done
-
-STATE=(`echo $(lxc-info -s -n $CONTAINER_NAME)`)
+STATE=(`echo $(sudo lxc-info -s -n $CONTAINER_NAME)`)
 RUNNING=`contains "RUNNING" "${STATE[@]}"`
 
 if [ $RUNNING == 1 ]; then
    echo "mklxc: Container is not running. Starting it..."
-   lxc-start -n $CONTAINER_NAME -d
+   sudo lxc-start -n $CONTAINER_NAME -d
    # Wait a few seconds for networking to wake up:
    sleep 6
 fi
 
+CONTAINER_IP=`get_container_ip`
 
-cat <<EOF
-mklxc: Container "$CONTAINER_NAME" is running with the following details.
-`lxc-info -n $CONTAINER_NAME`
-EOF
-#
-#Return to host
-#--------------
-#Ctrl-A then q
-#
-#Sharing files between host and container
-#----------------------------------------
-#Open a console to the container and create the target dir:
-#    $ mkdir /home/ubuntu/your-proj
-#
-#Exit the console and edit the container's config file:
-#    $ vi /var/lib/lxc/container-name/config
-#
-#Add:
-#    lxc.mount.entry = /home/you/your-proj home/ubuntu/your-proj none ro,bind 0.0
-#
-#See IP address and state of container
-#-------------------------------------
-#    $ lxc-ls --fancy container-name
-#
+for d in $DIRS_TO_SHARE; do
+   config_directory $d
+done
+
+setup_ssh_keys
+
+for d in $DIRS_TO_SHARE; do
+   mk_remote_dir $d
+done
+
+if [ $RESTART == 1 ]; then
+    sudo lxc-stop -n $CONTAINER_NAME
+    sudo lxc-start -n $CONTAINER_NAME
+fi
+
+echo "mklxc: Container "$CONTAINER_NAME" is running with IP address $CONTAINER_IP"
+echo "mklxc: You may connect over ssh using:"
+echo "ssh $CONTAINER_USER@$CONTAINER_IP"

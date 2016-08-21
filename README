@@ -1,0 +1,21 @@
+Quick script to set up lxc containers.
+
+The purpose of this is to be able to quickly throw up
+containers for use as contained development boxes. Not
+intended for use in any production systems.
+
+Takes care of a few fiddly things like configuring shared
+directories and ssh keys.
+
+Usage:
+    ./mklxc container-name /path/to/dir /path/to/otherdir
+
+container-name will be created with the shared dirs at
+
+    /home/ubuntu/dir
+    /home/ubuntu/otherdir
+
+A known limitation is that you can't share multiple directories
+with the same basename. This is because I have no need to do this.
+
+Minimally tested.
