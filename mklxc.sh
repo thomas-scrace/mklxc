@@ -32,7 +32,7 @@ function contains () {
 function config_directory () {
   host_dir=$1
   basename=`basename $1`
-  line="lxc.mount.entry = $host_dir home/$CONTAINER_USER/$basename none ro,bind 0.0"
+  line="lxc.mount.entry = $host_dir home/$CONTAINER_USER/$basename none rw,bind 0.0"
   if ! sudo grep -Fxq "$line" $CONFIG_PATH; then
     echo "Configuring shared directory \"$host_dir\""
     sudo bash -c "echo $line >>$CONFIG_PATH"
